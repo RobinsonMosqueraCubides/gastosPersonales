@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from sqlmodel import create_engine, SQLModel, Session, select
-from passlib.context import CryptContext
+
 
 # Cargar variables de entorno
 load_dotenv()
@@ -25,8 +25,7 @@ engine = create_engine(
     echo=False
 )
 
-# Contexto de contraseñas para hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 def get_session():
     with Session(engine) as session:
@@ -43,7 +42,8 @@ def init_db():
         # 1. Crear usuario default 'agaray' si no existe
         usuario_db = session.exec(select(Usuario).where(Usuario.username == "agaray")).first()
         if not usuario_db:
-            hashed_pw = pwd_context.hash("r0b1ns0n!")
+            from .auth import get_password_hash
+            hashed_pw = get_password_hash("r0b1ns0n!")
             nuevo_usuario = Usuario(username="agaray", hashed_password=hashed_pw)
             session.add(nuevo_usuario)
             

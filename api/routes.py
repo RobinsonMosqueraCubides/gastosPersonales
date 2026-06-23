@@ -1,12 +1,12 @@
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlmodel import Session, select, func
+from sqlmodel import Session, select
 from .database import get_session
 from .auth import verify_password, create_access_token, get_current_user
-from .models import Usuario, Categoria, PresupuestoMensual, LineaPresupuesto, GastoReal
+from .models import Usuario, Categoria, PresupuestoMensual, LineaPresupuesto, GastoReal, IngresoReal
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api")
@@ -40,6 +40,7 @@ class GastoRealCreate(BaseModel):
     fecha: date
     descripcion: str
     establecimiento: Optional[str] = None
+    medio_pago: Optional[str] = "Efectivo"
 
 class GastoRealResponse(BaseModel):
     id: int
@@ -48,6 +49,21 @@ class GastoRealResponse(BaseModel):
     fecha: date
     descripcion: str
     establecimiento: Optional[str]
+    medio_pago: Optional[str]
+
+class IngresoRealCreate(BaseModel):
+    monto_real: Decimal = Field(gt=0, decimal_places=2)
+    fecha: date
+    descripcion: str
+    medio_pago: str
+
+class IngresoRealResponse(BaseModel):
+    id: int
+    monto_real: Decimal
+    fecha: date
+    descripcion: str
+    medio_pago: str
+    presupuesto_mensual_id: int
 
 # --- Rutas de Autenticación ---
 @router.post("/auth/login", response_model=TokenResponse)
@@ -61,7 +77,6 @@ def login(login_data: LoginRequest, session: Session = Depends(get_session)):
     access_token = create_access_token(data={"sub": user.username})
     return {"access_token": access_token, "token_type": "bearer"}
 
-# Endpoint secundario para compatibilidad con OAuth2PasswordBearer en Swagger UI
 @router.post("/auth/login-swagger", response_model=TokenResponse)
 def login_swagger(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
     user = session.exec(select(Usuario).where(Usuario.username == form_data.username)).first()
@@ -87,7 +102,6 @@ def get_categorias(session: Session = Depends(get_session), current_user: Usuari
 # --- Rutas de Presupuesto ---
 @router.post("/presupuestos")
 def create_presupuesto(data: PresupuestoCreate, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
-    # Verificar si ya existe un presupuesto para el mes y año seleccionados
     existe = session.exec(
         select(PresupuestoMensual)
         .where(PresupuestoMensual.mes == data.mes)
@@ -95,10 +109,12 @@ def create_presupuesto(data: PresupuestoCreate, session: Session = Depends(get_s
     ).first()
     
     if existe:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ya existe un presupuesto para este mes y año."
-        )
+        # Si ya existe, actualizamos el ingreso estimado
+        existe.ingreso_estimado = data.ingreso_estimado
+        session.add(existe)
+        session.commit()
+        session.refresh(existe)
+        return existe
         
     nuevo_presupuesto = PresupuestoMensual(
         mes=data.mes,
@@ -121,7 +137,6 @@ def get_presupuesto(mes: int, anio: int, session: Session = Depends(get_session)
     if not presupuesto:
         return {"id": None, "mes": mes, "anio": anio, "ingreso_estimado": 0, "lineas": []}
         
-    # Construir respuesta con líneas de presupuesto detalladas
     lineas_detalladas = []
     for linea in presupuesto.lineas:
         lineas_detalladas.append({
@@ -142,7 +157,6 @@ def get_presupuesto(mes: int, anio: int, session: Session = Depends(get_session)
 
 @router.post("/presupuestos/{mes}/{anio}/lineas")
 def update_linea_presupuesto(mes: int, anio: int, data: LineaPresupuestoCreate, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
-    # Buscar presupuesto mensual
     presupuesto = session.exec(
         select(PresupuestoMensual)
         .where(PresupuestoMensual.mes == mes)
@@ -150,13 +164,11 @@ def update_linea_presupuesto(mes: int, anio: int, data: LineaPresupuestoCreate, 
     ).first()
     
     if not presupuesto:
-        # Inicializar automáticamente si no existe
         presupuesto = PresupuestoMensual(mes=mes, anio=anio, ingreso_estimado=Decimal("0.00"))
         session.add(presupuesto)
         session.commit()
         session.refresh(presupuesto)
         
-    # Verificar si la línea ya existe para la categoría
     linea = session.exec(
         select(LineaPresupuesto)
         .where(LineaPresupuesto.presupuesto_mensual_id == presupuesto.id)
@@ -164,10 +176,8 @@ def update_linea_presupuesto(mes: int, anio: int, data: LineaPresupuestoCreate, 
     ).first()
     
     if linea:
-        # Actualizar monto
         linea.monto_presupuestado = data.monto_presupuestado
     else:
-        # Crear nueva línea
         linea = LineaPresupuesto(
             presupuesto_mensual_id=presupuesto.id,
             categoria_id=data.categoria_id,
@@ -179,7 +189,6 @@ def update_linea_presupuesto(mes: int, anio: int, data: LineaPresupuestoCreate, 
 
 @router.post("/presupuestos/{mes}/{anio}/clonar")
 def clone_presupuesto(mes: int, anio: int, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
-    # 1. Buscar el presupuesto destino
     presupuesto_destino = session.exec(
         select(PresupuestoMensual)
         .where(PresupuestoMensual.mes == mes)
@@ -192,7 +201,6 @@ def clone_presupuesto(mes: int, anio: int, session: Session = Depends(get_sessio
         session.commit()
         session.refresh(presupuesto_destino)
         
-    # 2. Calcular mes/año del mes anterior
     if mes == 1:
         mes_anterior = 12
         anio_anterior = anio - 1
@@ -200,7 +208,6 @@ def clone_presupuesto(mes: int, anio: int, session: Session = Depends(get_sessio
         mes_anterior = mes - 1
         anio_anterior = anio
         
-    # 3. Buscar presupuesto anterior
     presupuesto_anterior = session.exec(
         select(PresupuestoMensual)
         .where(PresupuestoMensual.mes == mes_anterior)
@@ -213,15 +220,12 @@ def clone_presupuesto(mes: int, anio: int, session: Session = Depends(get_sessio
             detail="No se encontró un presupuesto con líneas en el mes anterior para clonar."
         )
         
-    # Duplicar el ingreso estimado si es 0
     if presupuesto_destino.ingreso_estimado == 0:
         presupuesto_destino.ingreso_estimado = presupuesto_anterior.ingreso_estimado
         session.add(presupuesto_destino)
         
-    # 4. Clonar líneas
     contador = 0
     for linea_ant in presupuesto_anterior.lineas:
-        # Verificar si ya existe una línea para esa categoría en el destino
         existe = session.exec(
             select(LineaPresupuesto)
             .where(LineaPresupuesto.presupuesto_mensual_id == presupuesto_destino.id)
@@ -241,14 +245,43 @@ def clone_presupuesto(mes: int, anio: int, session: Session = Depends(get_sessio
     return {"message": f"Clonación exitosa. Se copiaron {contador} líneas de presupuesto."}
 
 
+# --- Rutas de Ingresos Reales ---
+@router.post("/ingresos", response_model=IngresoRealResponse)
+def create_ingreso(data: IngresoRealCreate, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
+    mes_ingreso = data.fecha.month
+    anio_ingreso = data.fecha.year
+    
+    presupuesto = session.exec(
+        select(PresupuestoMensual)
+        .where(PresupuestoMensual.mes == mes_ingreso)
+        .where(PresupuestoMensual.anio == anio_ingreso)
+    ).first()
+    
+    if not presupuesto:
+        presupuesto = PresupuestoMensual(mes=mes_ingreso, anio=anio_ingreso, ingreso_estimado=Decimal("0.00"))
+        session.add(presupuesto)
+        session.commit()
+        session.refresh(presupuesto)
+        
+    nuevo_ingreso = IngresoReal(
+        presupuesto_mensual_id=presupuesto.id,
+        monto_real=data.monto_real,
+        fecha=data.fecha,
+        descripcion=data.descripcion,
+        medio_pago=data.medio_pago
+    )
+    session.add(nuevo_ingreso)
+    session.commit()
+    session.refresh(nuevo_ingreso)
+    return nuevo_ingreso
+
+
 # --- Rutas de Gastos Reales ---
 @router.post("/gastos", response_model=GastoRealResponse)
 def create_gasto(data: GastoRealCreate, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
-    # Obtener mes y año de la fecha del gasto
     mes_gasto = data.fecha.month
     anio_gasto = data.fecha.year
     
-    # 1. Buscar o inicializar PresupuestoMensual para el período del gasto
     presupuesto = session.exec(
         select(PresupuestoMensual)
         .where(PresupuestoMensual.mes == mes_gasto)
@@ -256,14 +289,11 @@ def create_gasto(data: GastoRealCreate, session: Session = Depends(get_session),
     ).first()
     
     if not presupuesto:
-        # Inicializar automáticamente
         presupuesto = PresupuestoMensual(mes=mes_gasto, anio=anio_gasto, ingreso_estimado=Decimal("0.00"))
         session.add(presupuesto)
         session.commit()
         session.refresh(presupuesto)
         
-    # 2. CU6: Excepción - Gasto No Presupuestado
-    # Verificar si la categoría está en el presupuesto de este mes
     linea = session.exec(
         select(LineaPresupuesto)
         .where(LineaPresupuesto.presupuesto_mensual_id == presupuesto.id)
@@ -271,7 +301,6 @@ def create_gasto(data: GastoRealCreate, session: Session = Depends(get_session),
     ).first()
     
     if not linea:
-        # Interceptar y crear línea de presupuesto con monto_presupuestado = 0
         linea = LineaPresupuesto(
             presupuesto_mensual_id=presupuesto.id,
             categoria_id=data.categoria_id,
@@ -280,13 +309,13 @@ def create_gasto(data: GastoRealCreate, session: Session = Depends(get_session),
         session.add(linea)
         session.commit()
         
-    # 3. Registrar el gasto
     nuevo_gasto = GastoReal(
         categoria_id=data.categoria_id,
         monto_real=data.monto_real,
         fecha=data.fecha,
         descripcion=data.descripcion,
-        establecimiento=data.establecimiento
+        establecimiento=data.establecimiento,
+        medio_pago=data.medio_pago
     )
     session.add(nuevo_gasto)
     session.commit()
@@ -294,8 +323,7 @@ def create_gasto(data: GastoRealCreate, session: Session = Depends(get_session),
     return nuevo_gasto
 
 @router.post("/gastos/fijo/{linea_presupuesto_id}/pagar")
-def pay_gasto_fijo(linea_presupuesto_id: int, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
-    # 1. Obtener la línea de presupuesto
+def pay_gasto_fijo(linea_presupuesto_id: int, medio_pago: str = "Efectivo", session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
     linea = session.get(LineaPresupuesto, linea_presupuesto_id)
     if not linea:
         raise HTTPException(
@@ -303,17 +331,13 @@ def pay_gasto_fijo(linea_presupuesto_id: int, session: Session = Depends(get_ses
             detail="Línea de presupuesto no encontrada."
         )
         
-    # Verificar que sea de tipo Fijo
     if linea.categoria.tipo_gasto != "Fijo":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La categoría asociada no es de tipo Gasto Fijo."
         )
         
-    # 2. Generar el registro en Gastos_Reales
-    # Obtenemos el mes/año del presupuesto para establecer la fecha
     presupuesto = linea.presupuesto_mensual
-    # Si es el mes actual, usar el día de hoy, sino el primer día de ese mes/año presupuestado
     hoy = date.today()
     if hoy.month == presupuesto.mes and hoy.year == presupuesto.anio:
         fecha_gasto = hoy
@@ -322,20 +346,80 @@ def pay_gasto_fijo(linea_presupuesto_id: int, session: Session = Depends(get_ses
         
     nuevo_gasto = GastoReal(
         categoria_id=linea.categoria_id,
-        monto_real=linea.monto_presupuestado,  # Paga exactamente el monto presupuestado
+        monto_real=linea.monto_presupuestado,
         fecha=fecha_gasto,
         descripcion=f"Pago mensual de gasto fijo: {linea.categoria.nombre}",
-        establecimiento="Pago Fijo"
+        establecimiento="Pago Fijo",
+        medio_pago=medio_pago
     )
     session.add(nuevo_gasto)
     session.commit()
     return {"message": "Gasto fijo marcado como pagado.", "gasto_id": nuevo_gasto.id}
 
 
-# --- Rutas de Dashboard y Análisis (Moneda: COP) ---
+# --- Rutas de Historial Unificado de Transacciones ---
+@router.get("/transacciones/{mes}/{anio}")
+def get_transacciones(mes: int, anio: int, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
+    primer_dia = date(anio, mes, 1)
+    if mes == 12:
+        ultimo_dia = date(anio + 1, 1, 1)
+    else:
+        ultimo_dia = date(anio, mes + 1, 1)
+        
+    # Consultar gastos reales
+    gastos = session.exec(
+        select(GastoReal)
+        .where(GastoReal.fecha >= primer_dia)
+        .where(GastoReal.fecha < ultimo_dia)
+    ).all()
+    
+    # Consultar ingresos reales del presupuesto de este mes
+    presupuesto = session.exec(
+        select(PresupuestoMensual)
+        .where(PresupuestoMensual.mes == mes)
+        .where(PresupuestoMensual.anio == anio)
+    ).first()
+    
+    ingresos = []
+    if presupuesto:
+        ingresos = presupuesto.ingresos_reales
+        
+    resultado = []
+    
+    # Agregar Egresos (Gastos)
+    for g in gastos:
+        resultado.append({
+            "id": g.id,
+            "tipo": "Egreso",
+            "monto": g.monto_real,
+            "fecha": g.fecha,
+            "descripcion": g.descripcion,
+            "categoria": g.categoria.nombre if g.categoria else "Otros",
+            "medio_pago": g.medio_pago or "Efectivo",
+            "establecimiento": g.establecimiento or ""
+        })
+        
+    # Agregar Ingresos
+    for i in ingresos:
+        resultado.append({
+            "id": i.id,
+            "tipo": "Ingreso",
+            "monto": i.monto_real,
+            "fecha": i.fecha,
+            "descripcion": i.descripcion,
+            "categoria": "Ingreso Real",
+            "medio_pago": i.medio_pago or "Efectivo",
+            "establecimiento": ""
+        })
+        
+    # Ordenar por fecha descendente y luego por ID descendente
+    resultado.sort(key=lambda x: (x["fecha"], x["id"]), reverse=True)
+    return resultado
+
+
+# --- Dashboard ---
 @router.get("/dashboard/{mes}/{anio}")
 def get_dashboard(mes: int, anio: int, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
-    # Obtener el presupuesto
     presupuesto = session.exec(
         select(PresupuestoMensual)
         .where(PresupuestoMensual.mes == mes)
@@ -345,32 +429,32 @@ def get_dashboard(mes: int, anio: int, session: Session = Depends(get_session), 
     if not presupuesto:
         return {
             "ingreso_estimado": 0,
+            "total_ingresos_reales": 0,
             "total_presupuestado": 0,
             "total_real": 0,
             "desviacion": 0,
+            "balance_caja": 0,
             "estado": "Verde",
             "categorias": []
         }
         
-    # Obtener todos los gastos de ese mes/año
-    # Se filtran los gastos entre el primer y último día del mes
     primer_dia = date(anio, mes, 1)
     if mes == 12:
         ultimo_dia = date(anio + 1, 1, 1)
     else:
         ultimo_dia = date(anio, mes + 1, 1)
         
-    # Consultar y agrupar gastos del mes
     gastos = session.exec(
         select(GastoReal)
         .where(GastoReal.fecha >= primer_dia)
         .where(GastoReal.fecha < ultimo_dia)
     ).all()
     
-    # Mapeo de categorías del mes para consolidación
+    # Calcular ingresos reales totales
+    total_ingresos_reales = sum([i.monto_real for i in presupuesto.ingresos_reales])
+    
     consolidado = {}
     
-    # Inicializar con lo presupuestado
     for linea in presupuesto.lineas:
         consolidado[linea.categoria_id] = {
             "categoria_id": linea.categoria_id,
@@ -378,21 +462,18 @@ def get_dashboard(mes: int, anio: int, session: Session = Depends(get_session), 
             "categoria_tipo": linea.categoria.tipo_gasto,
             "monto_presupuestado": linea.monto_presupuestado,
             "monto_real": Decimal("0.00"),
-            "desviacion": linea.monto_presupuestado,  # Al inicio, todo es saldo restante
+            "desviacion": linea.monto_presupuestado,
             "estado": "Verde",
             "pagado_fijo": False
         }
         
-    # Sumar los gastos reales
     for gasto in gastos:
         cat_id = gasto.categoria_id
         if cat_id not in consolidado:
-            # Si hay un gasto pero no estaba presupuestado (debería crearse la línea, pero por seguridad controlamos)
-            # Esto maneja consistencias
             categoria = session.get(Categoria, cat_id)
             consolidado[cat_id] = {
                 "categoria_id": cat_id,
-                "categoria_nombre": categoria.nombre if categoria else "Desconocida",
+                "categoria_nombre": categoria.nombre if categoria else "Otros",
                 "categoria_tipo": categoria.tipo_gasto if categoria else "Variable",
                 "monto_presupuestado": Decimal("0.00"),
                 "monto_real": Decimal("0.00"),
@@ -402,7 +483,6 @@ def get_dashboard(mes: int, anio: int, session: Session = Depends(get_session), 
             }
         consolidado[cat_id]["monto_real"] += gasto.monto_real
         
-    # Calcular desviaciones de cada categoría
     total_presupuestado = Decimal("0.00")
     total_real = Decimal("0.00")
     
@@ -413,7 +493,6 @@ def get_dashboard(mes: int, anio: int, session: Session = Depends(get_session), 
         desviacion = m_pres - m_real
         
         info["desviacion"] = desviacion
-        # Si es fijo y ya tiene un gasto que cubre el presupuesto (o mayor a 0) se marca como pagado
         if info["categoria_tipo"] == "Fijo" and m_real >= m_pres and m_pres > 0:
             info["pagado_fijo"] = True
             
@@ -428,32 +507,31 @@ def get_dashboard(mes: int, anio: int, session: Session = Depends(get_session), 
         
     desviacion_total = total_presupuestado - total_real
     estado_total = "Rojo" if desviacion_total < 0 else "Verde"
+    balance_caja = total_ingresos_reales - total_real
     
     return {
         "ingreso_estimado": presupuesto.ingreso_estimado,
+        "total_ingresos_reales": total_ingresos_reales,
         "total_presupuestado": total_presupuestado,
         "total_real": total_real,
         "desviacion": desviacion_total,
+        "balance_caja": balance_caja,
         "estado": estado_total,
         "categorias": categorias_lista
     }
 
+# --- Análisis Histórico ---
 @router.get("/historico/{anio}")
 def get_historico(anio: int, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
-    # Retornar sumatorias de monto_presupuestado y monto_real para los 12 meses
-    # Filtro por año
     datos_historicos = []
     
-    # 1. Obtener todos los presupuestos de ese año
     presupuestos_anio = session.exec(
         select(PresupuestoMensual)
         .where(PresupuestoMensual.anio == anio)
     ).all()
     
-    # Mapeo por mes {mes: {categoria_id: {presupuestado, real}}}
     resumen_mensual = {m: {} for m in range(1, 13)}
     
-    # Inicializar con montos presupuestados
     for pres in presupuestos_anio:
         m = pres.mes
         for linea in pres.lineas:
@@ -463,7 +541,6 @@ def get_historico(anio: int, session: Session = Depends(get_session), current_us
                 "monto_real": Decimal("0.00")
             }
             
-    # 2. Obtener todos los gastos de ese año
     primer_dia_anio = date(anio, 1, 1)
     ultimo_dia_anio = date(anio, 12, 31)
     
@@ -473,7 +550,6 @@ def get_historico(anio: int, session: Session = Depends(get_session), current_us
         .where(GastoReal.fecha <= ultimo_dia_anio)
     ).all()
     
-    # Sumar los gastos reales
     for gasto in gastos_anio:
         m = gasto.fecha.month
         cat_id = gasto.categoria_id
@@ -487,13 +563,10 @@ def get_historico(anio: int, session: Session = Depends(get_session), current_us
             }
         resumen_mensual[m][cat_id]["monto_real"] += gasto.monto_real
         
-    # Formatear salida para el gráfico
-    # [{ "mes": "Ene", "Supermercado": { presupuestado: X, real: Y }, ... }]
     meses_nombres = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
     
     for m in range(1, 13):
         mes_data = {"mes": meses_nombres[m - 1], "numero_mes": m}
-        # Agregar los detalles de cada categoría a este mes
         detalles = []
         for cat_id, info in resumen_mensual[m].items():
             detalles.append({

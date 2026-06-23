@@ -9,7 +9,6 @@ import {
 import { 
   PlusCircle, 
   TrendingUp, 
-  TrendingDown, 
   DollarSign, 
   Calendar, 
   Moon, 
@@ -19,7 +18,10 @@ import {
   Check, 
   Plus, 
   Wallet,
-  Building
+  Building,
+  ArrowUpRight,
+  ArrowDownRight,
+  CreditCard
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -42,6 +44,9 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// Medios de Pago estándar
+const MEDIOS_PAGO = ["Efectivo", "Bancolombia", "Nequi", "Daviplata", "Nu bank"];
 
 // Función formateadora de moneda (COP)
 const formatCOP = (val: number | string) => {
@@ -119,7 +124,6 @@ function LoginScreen({ onLoginSuccess, darkMode, setDarkMode }: {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col justify-center items-center p-4 transition-colors duration-300">
-      {/* Botón Modo Oscuro */}
       <button 
         onClick={() => setDarkMode(!darkMode)}
         className="absolute top-4 right-4 p-2 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:opacity-80 transition"
@@ -191,13 +195,25 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
 
   // Modales
   const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [showIncomeModal, setShowIncomeModal] = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
+  
+  // Modal Pago Gasto Fijo
+  const [selectedFixedLine, setSelectedFixedLine] = useState<any | null>(null);
 
   // Queries
   const { data: dashboardData, isLoading: loadingDash } = useQuery({
     queryKey: ['dashboard', selectedMonth, selectedYear],
     queryFn: async () => {
       const response = await api.get(`/api/dashboard/${selectedMonth}/${selectedYear}`);
+      return response.data;
+    }
+  });
+
+  const { data: transacciones, isLoading: loadingTrans } = useQuery({
+    queryKey: ['transacciones', selectedMonth, selectedYear],
+    queryFn: async () => {
+      const response = await api.get(`/api/transacciones/${selectedMonth}/${selectedYear}`);
       return response.data;
     }
   });
@@ -218,13 +234,33 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
       fecha: string;
       descripcion: string;
       establecimiento?: string;
+      medio_pago: string;
     }) => {
       return api.post('/api/gastos', payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['transacciones'] });
       queryClient.invalidateQueries({ queryKey: ['historico'] });
       setShowExpenseModal(false);
+    }
+  });
+
+  // Mutación para Registrar Ingreso Real
+  const incomeMutation = useMutation({
+    mutationFn: async (payload: {
+      monto_real: number;
+      fecha: string;
+      descripcion: string;
+      medio_pago: string;
+    }) => {
+      return api.post('/api/ingresos', payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['transacciones'] });
+      queryClient.invalidateQueries({ queryKey: ['historico'] });
+      setShowIncomeModal(false);
     }
   });
 
@@ -244,7 +280,7 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
   });
 
   // Mutación para Configurar Ingreso Estimado
-  const incomeMutation = useMutation({
+  const estimatedIncomeMutation = useMutation({
     mutationFn: async (ingreso: number) => {
       return api.post('/api/presupuestos', {
         mes: selectedMonth,
@@ -264,6 +300,7 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['transacciones'] });
       alert("¡Presupuesto clonado con éxito!");
     },
     onError: (err: any) => {
@@ -273,12 +310,14 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
 
   // Mutación para Pagar Gasto Fijo
   const payFixedMutation = useMutation({
-    mutationFn: async (lineaId: number) => {
-      return api.post(`/api/gastos/fijo/${lineaId}/pagar`);
+    mutationFn: async (payload: { lineaId: number; medio_pago: string }) => {
+      return api.post(`/api/gastos/fijo/${payload.lineaId}/pagar?medio_pago=${payload.medio_pago}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['transacciones'] });
       queryClient.invalidateQueries({ queryKey: ['historico'] });
+      setSelectedFixedLine(null);
     }
   });
 
@@ -290,7 +329,7 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
           <div className="p-2 bg-purple-600 rounded-lg text-white">
             <Wallet size={24} />
           </div>
-          <span className="text-xl font-bold text-slate-900 dark:text-white">Finanzas COP</span>
+          <span className="text-xl font-bold text-slate-900 dark:text-white">Finanzas Personales (COP)</span>
         </div>
 
         <div className="flex items-center space-x-4">
@@ -372,17 +411,17 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
         {currentTab === 'dashboard' ? (
           <>
             {/* RESUMEN DE TARJETAS (CARDS) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               {/* Ingreso Estimado */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 relative overflow-hidden">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 relative overflow-hidden">
                 <div className="flex items-center justify-between text-slate-400">
-                  <span className="text-sm font-medium">Ingreso Estimado</span>
-                  <div className="p-2 bg-blue-100 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 rounded-lg">
-                    <DollarSign size={18} />
+                  <span className="text-xs font-medium">Ingreso Presupuestado</span>
+                  <div className="p-1.5 bg-blue-100 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 rounded-lg">
+                    <DollarSign size={16} />
                   </div>
                 </div>
                 <div className="mt-3 flex items-baseline justify-between">
-                  <span className="text-2xl font-bold text-slate-900 dark:text-white">
+                  <span className="text-xl font-bold text-slate-900 dark:text-white">
                     {formatCOP(dashboardData?.ingreso_estimado || 0)}
                   </span>
                   <button 
@@ -391,58 +430,73 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
                       if (value !== null) {
                         const parsed = parseFloat(value);
                         if (!isNaN(parsed) && parsed >= 0) {
-                          incomeMutation.mutate(parsed);
+                          estimatedIncomeMutation.mutate(parsed);
                         }
                       }
                     }}
-                    className="text-xs text-purple-600 hover:underline"
+                    className="text-[10px] text-purple-600 hover:underline font-semibold"
                   >
                     Editar
                   </button>
                 </div>
               </div>
 
-              {/* Total Presupuestado */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
+              {/* Ingreso Real */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 relative overflow-hidden">
                 <div className="flex items-center justify-between text-slate-400">
-                  <span className="text-sm font-medium">Límite Presupuestado</span>
-                  <div className="p-2 bg-yellow-100 dark:bg-yellow-950/30 text-yellow-600 dark:text-yellow-400 rounded-lg">
-                    <TrendingUp size={18} />
+                  <span className="text-xs font-medium">Ingresos Reales</span>
+                  <div className="p-1.5 bg-green-100 dark:bg-green-950/30 text-green-600 dark:text-green-400 rounded-lg">
+                    <ArrowUpRight size={16} />
                   </div>
                 </div>
                 <div className="mt-3">
-                  <span className="text-2xl font-bold text-slate-900 dark:text-white">
+                  <span className="text-xl font-bold text-slate-900 dark:text-white">
+                    {formatCOP(dashboardData?.total_ingresos_reales || 0)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Límite Presupuestado */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
+                <div className="flex items-center justify-between text-slate-400">
+                  <span className="text-xs font-medium">Límite Gastos</span>
+                  <div className="p-1.5 bg-yellow-100 dark:bg-yellow-950/30 text-yellow-600 dark:text-yellow-400 rounded-lg">
+                    <TrendingUp size={16} />
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <span className="text-xl font-bold text-slate-900 dark:text-white">
                     {formatCOP(dashboardData?.total_presupuestado || 0)}
                   </span>
                 </div>
               </div>
 
-              {/* Total Real */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
+              {/* Gasto Real */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
                 <div className="flex items-center justify-between text-slate-400">
-                  <span className="text-sm font-medium">Ejecutado (Real)</span>
-                  <div className="p-2 bg-purple-100 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 rounded-lg">
-                    <TrendingDown size={18} />
+                  <span className="text-xs font-medium">Gastos Reales</span>
+                  <div className="p-1.5 bg-purple-100 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 rounded-lg">
+                    <ArrowDownRight size={16} />
                   </div>
                 </div>
                 <div className="mt-3">
-                  <span className="text-2xl font-bold text-slate-900 dark:text-white">
+                  <span className="text-xl font-bold text-slate-900 dark:text-white">
                     {formatCOP(dashboardData?.total_real || 0)}
                   </span>
                 </div>
               </div>
 
-              {/* Desviación */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
+              {/* Balance de Caja */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
                 <div className="flex items-center justify-between text-slate-400">
-                  <span className="text-sm font-medium">Saldo Restante / Desviación</span>
-                  <div className={`p-2 rounded-lg text-xs font-semibold ${dashboardData?.estado === 'Rojo' ? 'bg-red-100 dark:bg-red-950/30 text-red-600 dark:text-red-400' : 'bg-green-100 dark:bg-green-950/30 text-green-600 dark:text-green-400'}`}>
-                    {dashboardData?.estado === 'Rojo' ? 'Sobregiro' : 'Saludable'}
+                  <span className="text-xs font-medium">Balance Neto</span>
+                  <div className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${dashboardData?.balance_caja >= 0 ? 'bg-green-100 dark:bg-green-950/30 text-green-600' : 'bg-red-100 dark:bg-red-950/30 text-red-600'}`}>
+                    {dashboardData?.balance_caja >= 0 ? 'Ahorro' : 'Déficit'}
                   </div>
                 </div>
                 <div className="mt-3">
-                  <span className={`text-2xl font-bold ${dashboardData?.estado === 'Rojo' ? 'text-red-500' : 'text-green-500'}`}>
-                    {formatCOP(dashboardData?.desviacion || 0)}
+                  <span className={`text-xl font-bold ${dashboardData?.balance_caja >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {formatCOP(dashboardData?.balance_caja || 0)}
                   </span>
                 </div>
               </div>
@@ -455,7 +509,15 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
                 className="py-2.5 px-5 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-xl flex items-center space-x-2 shadow-lg shadow-purple-600/20 text-sm transition"
               >
                 <PlusCircle size={18} />
-                <span>Registrar Gasto Rápido</span>
+                <span>Registrar Gasto</span>
+              </button>
+
+              <button 
+                onClick={() => setShowIncomeModal(true)}
+                className="py-2.5 px-5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl flex items-center space-x-2 shadow-lg shadow-green-600/20 text-sm transition"
+              >
+                <PlusCircle size={18} />
+                <span>Registrar Ingreso Real</span>
               </button>
 
               <button 
@@ -463,15 +525,15 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
                 className="py-2.5 px-5 border border-slate-200 dark:border-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold rounded-xl flex items-center space-x-2 text-sm transition"
               >
                 <Plus size={18} />
-                <span>Planificar Línea</span>
+                <span>Planificar Límite</span>
               </button>
             </div>
 
             {/* LISTADO DE CATEGORÍAS */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
               <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">Estado por Categoría</h2>
-                <span className="text-xs text-slate-500">Muestra montos presupuestados y gastos acumulados</span>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">Planificación vs Gasto por Categoría</h2>
+                <span className="text-xs text-slate-500">Formato en Pesos Colombianos (COP)</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm border-collapse">
@@ -479,7 +541,7 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
                     <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
                       <th className="py-3 px-6">Categoría</th>
                       <th className="py-3 px-6">Tipo</th>
-                      <th className="py-3 px-6">Presupuestado</th>
+                      <th className="py-3 px-6">Límite Presupuesto</th>
                       <th className="py-3 px-6">Gastado Real</th>
                       <th className="py-3 px-6">Diferencia</th>
                       <th className="py-3 px-6 text-right">Acción Gasto Fijo</th>
@@ -492,7 +554,7 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
                       </tr>
                     ) : dashboardData?.categorias.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-500">No hay categorías presupuestadas para este mes. Agrega líneas para empezar.</td>
+                        <td colSpan={6} className="py-8 text-center text-slate-500">No hay límites de presupuesto configurados para este mes.</td>
                       </tr>
                     ) : (
                       dashboardData?.categorias.map((info: any) => (
@@ -513,7 +575,7 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
                           <td className="py-4 px-6 text-right">
                             {info.categoria_tipo === 'Fijo' && (
                               <button 
-                                onClick={() => payFixedMutation.mutate(info.id)}
+                                onClick={() => setSelectedFixedLine(info)}
                                 disabled={info.pagado_fijo || payFixedMutation.isPending}
                                 className={`inline-flex items-center space-x-1.5 py-1 px-3 rounded-lg text-xs font-bold transition border ${info.pagado_fijo ? 'bg-green-500/10 border-green-500/20 text-green-500' : 'bg-purple-600 border-purple-600 text-white hover:bg-purple-750'}`}
                               >
@@ -530,6 +592,66 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
                                 )}
                               </button>
                             )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* HISTORIAL DETALLADO DE TRANSACCIONES */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+              <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">Historial de Transacciones del Mes</h2>
+                <p className="text-xs text-slate-500">Muestra los ingresos y egresos ordenados cronológicamente</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                      <th className="py-3 px-6">Fecha</th>
+                      <th className="py-3 px-6">Tipo</th>
+                      <th className="py-3 px-6">Categoría</th>
+                      <th className="py-3 px-6">Descripción / Detalle</th>
+                      <th className="py-3 px-6">Medio de Pago</th>
+                      <th className="py-3 px-6">Monto</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                    {loadingTrans ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-500">Cargando transacciones...</td>
+                      </tr>
+                    ) : !transacciones || transacciones.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-500">No se registran movimientos para este mes.</td>
+                      </tr>
+                    ) : (
+                      transacciones.map((t: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20 transition-colors">
+                          <td className="py-3.5 px-6 font-medium text-slate-500 dark:text-slate-400">{t.fecha}</td>
+                          <td className="py-3.5 px-6">
+                            <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold ${t.tipo === 'Ingreso' ? 'bg-green-100 dark:bg-green-950/40 text-green-600 dark:text-green-400' : 'bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400'}`}>
+                              {t.tipo}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-6 font-semibold">{t.categoria}</td>
+                          <td className="py-3.5 px-6">
+                            <div className="font-medium text-slate-900 dark:text-slate-100">{t.descripcion}</div>
+                            {t.establecimiento && (
+                              <div className="text-xs text-slate-400">Establecimiento: {t.establecimiento}</div>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-6 text-slate-600 dark:text-slate-400">
+                            <div className="flex items-center space-x-1 text-xs">
+                              <CreditCard size={14} className="text-slate-400" />
+                              <span>{t.medio_pago}</span>
+                            </div>
+                          </td>
+                          <td className={`py-3.5 px-6 font-bold ${t.tipo === 'Ingreso' ? 'text-green-500' : 'text-slate-950 dark:text-white'}`}>
+                            {t.tipo === 'Ingreso' ? '+' : '-'}{formatCOP(t.monto)}
                           </td>
                         </tr>
                       ))
@@ -557,6 +679,15 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
         />
       )}
 
+      {/* MODAL REGISTRAR INGRESO REAL */}
+      {showIncomeModal && (
+        <IncomeModal 
+          onClose={() => setShowIncomeModal(false)}
+          onSubmit={(data) => incomeMutation.mutate(data)}
+          isPending={incomeMutation.isPending}
+        />
+      )}
+
       {/* MODAL PLANIFICAR PRESUPUESTO */}
       {showBudgetModal && (
         <BudgetModal 
@@ -564,6 +695,16 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
           onClose={() => setShowBudgetModal(false)}
           onSubmit={(data) => budgetMutation.mutate(data)}
           isPending={budgetMutation.isPending}
+        />
+      )}
+
+      {/* DIALOG DE CONFIRMACIÓN DE MEDIO DE PAGO PARA GASTO FIJO */}
+      {selectedFixedLine && (
+        <FixedPayDialog 
+          line={selectedFixedLine}
+          onClose={() => setSelectedFixedLine(null)}
+          onConfirm={(medio) => payFixedMutation.mutate({ lineaId: selectedFixedLine.id, medio_pago: medio })}
+          isPending={payFixedMutation.isPending}
         />
       )}
     </div>
@@ -584,7 +725,6 @@ function YearlyHistoryView({ selectedYear }: { selectedYear: number }) {
     return <div className="py-12 text-center text-slate-500">Cargando gráfico evolutivo...</div>;
   }
 
-  // Aplanar datos para pintar presupuesto total vs real total por mes
   const totalCompareData = chartData?.map((item: any) => {
     let presupuestado = 0;
     let real = 0;
@@ -601,7 +741,6 @@ function YearlyHistoryView({ selectedYear }: { selectedYear: number }) {
 
   return (
     <div className="grid grid-cols-1 gap-6">
-      {/* Gráfico de Barras Principal */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
         <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">Ejecución del Presupuesto Anual ({selectedYear})</h2>
         <div className="h-96">
@@ -619,7 +758,6 @@ function YearlyHistoryView({ selectedYear }: { selectedYear: number }) {
         </div>
       </div>
 
-      {/* Tabla detallada por mes */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800">
           <h2 className="text-base font-bold text-slate-900 dark:text-white">Resumen Mensual Detallado</h2>
@@ -668,16 +806,18 @@ function ExpenseModal({ categorias, onClose, onSubmit, isPending }: {
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
   const [descripcion, setDescripcion] = useState('');
   const [establecimiento, setEstablecimiento] = useState('');
+  const [medioPago, setMedioPago] = useState(MEDIOS_PAGO[0]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if(!catId || !monto || !fecha || !descripcion) return;
+    if(!catId || !monto || !fecha || !descripcion || !medioPago) return;
     onSubmit({
       categoria_id: parseInt(catId),
       monto_real: parseFloat(monto),
       fecha,
       descripcion,
-      establecimiento: establecimiento || undefined
+      establecimiento: establecimiento || undefined,
+      medio_pago: medioPago
     });
   };
 
@@ -685,7 +825,7 @@ function ExpenseModal({ categorias, onClose, onSubmit, isPending }: {
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex justify-center items-center p-4">
       <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
-          <h3 className="text-lg font-bold">Registrar Gasto Real</h3>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">Registrar Gasto Real</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white">✕</button>
         </div>
 
@@ -704,17 +844,33 @@ function ExpenseModal({ categorias, onClose, onSubmit, isPending }: {
             </select>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-400 mb-1">Monto en COP ($)</label>
-            <input 
-              type="number" 
-              placeholder="Ej: 50000"
-              value={monto} 
-              onChange={(e) => setMonto(e.target.value)}
-              className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white outline-none"
-              required
-              min="1"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1">Monto en COP ($)</label>
+              <input 
+                type="number" 
+                placeholder="Ej: 50000"
+                value={monto} 
+                onChange={(e) => setMonto(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white outline-none"
+                required
+                min="1"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1">Medio de Pago</label>
+              <select 
+                value={medioPago} 
+                onChange={(e) => setMedioPago(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white"
+                required
+              >
+                {MEDIOS_PAGO.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div>
@@ -773,7 +929,162 @@ function ExpenseModal({ categorias, onClose, onSubmit, isPending }: {
   );
 }
 
-// --- MODAL PLANIFICAR LÍNEA ---
+// --- MODAL DE INGRESO REAL ---
+function IncomeModal({ onClose, onSubmit, isPending }: {
+  onClose: () => void;
+  onSubmit: (data: any) => void;
+  isPending: boolean;
+}) {
+  const [monto, setMonto] = useState('');
+  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [descripcion, setDescripcion] = useState('');
+  const [medioPago, setMedioPago] = useState(MEDIOS_PAGO[0]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if(!monto || !fecha || !descripcion || !medioPago) return;
+    onSubmit({
+      monto_real: parseFloat(monto),
+      fecha,
+      descripcion,
+      medio_pago: medioPago
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex justify-center items-center p-4">
+      <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">Registrar Ingreso Real</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">✕</button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1">Monto del Ingreso ($)</label>
+              <input 
+                type="number" 
+                placeholder="Ej: 2500000"
+                value={monto} 
+                onChange={(e) => setMonto(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white outline-none"
+                required
+                min="1"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1">Destino de Fondos</label>
+              <select 
+                value={medioPago} 
+                onChange={(e) => setMedioPago(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white"
+                required
+              >
+                {MEDIOS_PAGO.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 mb-1">Fecha</label>
+            <input 
+              type="date" 
+              value={fecha} 
+              onChange={(e) => setFecha(e.target.value)}
+              className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white outline-none"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 mb-1">Descripción / Fuente</label>
+            <input 
+              type="text" 
+              placeholder="Ej: Salario Quincenal, Freelance..."
+              value={descripcion} 
+              onChange={(e) => setDescripcion(e.target.value)}
+              className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white outline-none"
+              required
+            />
+          </div>
+
+          <div className="pt-2 flex justify-end space-x-3">
+            <button 
+              type="button" 
+              onClick={onClose}
+              className="py-2 px-4 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold rounded-lg"
+            >
+              Cancelar
+            </button>
+            <button 
+              type="submit" 
+              disabled={isPending}
+              className="py-2 px-4 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50"
+            >
+              {isPending ? 'Guardando...' : 'Registrar Ingreso'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// --- DIALOGO DE CONFIRMACION GASTO FIJO ---
+function FixedPayDialog({ line, onClose, onConfirm, isPending }: {
+  line: any;
+  onClose: () => void;
+  onConfirm: (medio: string) => void;
+  isPending: boolean;
+}) {
+  const [medio, setMedio] = useState(MEDIOS_PAGO[0]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex justify-center items-center p-4">
+      <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl">
+        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Marcar Gasto Fijo</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+          Vas a marcar como pagado **{line.categoria_nombre}** por un monto de **{formatCOP(line.monto_presupuestado)}**.
+        </p>
+
+        <div className="mb-4">
+          <label className="block text-xs font-semibold text-slate-400 mb-1">Medio de Pago</label>
+          <select 
+            value={medio} 
+            onChange={(e) => setMedio(e.target.value)}
+            className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white"
+          >
+            {MEDIOS_PAGO.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex justify-end space-x-3">
+          <button 
+            onClick={onClose}
+            className="py-2 px-4 border border-slate-205 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-lg font-semibold text-sm"
+          >
+            Cancelar
+          </button>
+          <button 
+            onClick={() => onConfirm(medio)}
+            disabled={isPending}
+            className="py-2 px-4 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-semibold text-sm disabled:opacity-50"
+          >
+            {isPending ? 'Procesando...' : 'Confirmar Pago'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- MODAL PLANIFICAR PRESUPUESTO ---
 function BudgetModal({ categorias, onClose, onSubmit, isPending }: {
   categorias: any[];
   onClose: () => void;
@@ -796,7 +1107,7 @@ function BudgetModal({ categorias, onClose, onSubmit, isPending }: {
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex justify-center items-center p-4">
       <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
-          <h3 className="text-lg font-bold">Planificar Línea Presupuestaria</h3>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">Planificar Línea Presupuestaria</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white">✕</button>
         </div>
 

@@ -37,6 +37,10 @@ class PresupuestoMensual(SQLModel, table=True):
         back_populates="presupuesto_mensual", 
         sa_relationship_kwargs={"cascade": "all, delete-orphan"}
     )
+    ingresos_reales: List["IngresoReal"] = Relationship(
+        back_populates="presupuesto_mensual",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
 
 # --- Modelo de Líneas de Presupuesto ---
 class LineaPresupuesto(SQLModel, table=True):
@@ -61,6 +65,21 @@ class GastoReal(SQLModel, table=True):
     fecha: date = Field(default_factory=date.today)
     descripcion: str
     establecimiento: Optional[str] = Field(default=None)
+    medio_pago: Optional[str] = Field(default="Efectivo", description="Medio de pago utilizado")
     
     # Relaciones
     categoria: Categoria = Relationship(back_populates="gastos_reales")
+
+# --- Modelo de Ingresos Reales ---
+class IngresoReal(SQLModel, table=True):
+    __tablename__ = "ingresos_reales"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    presupuesto_mensual_id: int = Field(foreign_key="presupuestos_mensuales.id", ondelete="CASCADE")
+    monto_real: Decimal = Field(max_digits=12, decimal_places=2)
+    fecha: date = Field(default_factory=date.today)
+    descripcion: str
+    medio_pago: str = Field(default="Efectivo", description="Medio de ingreso")
+    
+    # Relaciones
+    presupuesto_mensual: PresupuestoMensual = Relationship(back_populates="ingresos_reales")

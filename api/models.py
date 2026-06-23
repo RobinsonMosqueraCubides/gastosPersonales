@@ -75,7 +75,7 @@ class IngresoReal(SQLModel, table=True):
     __tablename__ = "ingresos_reales"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    presupuesto_mensual_id: int = Field(foreign_key="presupuestos_mensuales.id", ondelete="CASCADE")
+    presupuesto_mensual_id: int = Field(foreign_key="presupuestos_mensuales.id")
     monto_real: Decimal = Field(max_digits=12, decimal_places=2)
     fecha: date = Field(default_factory=date.today)
     descripcion: str

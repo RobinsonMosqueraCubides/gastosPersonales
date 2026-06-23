@@ -43,7 +43,7 @@ class LineaPresupuesto(SQLModel, table=True):
     __tablename__ = "lineas_presupuesto"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    presupuesto_mensual_id: int = Field(foreign_key="presupuestos_mensuales.id", ondelete="CASCADE")
+    presupuesto_mensual_id: int = Field(foreign_key="presupuestos_mensuales.id")
     categoria_id: int = Field(foreign_key="categorias.id")
     monto_presupuestado: Decimal = Field(default=Decimal("0.00"), max_digits=12, decimal_places=2)
     

@@ -26,6 +26,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Registrar rutas de la aplicación
+from .routes import router
+app.include_router(router)
+
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "message": "API de Gastos Personales activa y funcionando."}

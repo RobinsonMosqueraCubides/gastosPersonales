@@ -31,7 +31,10 @@ import {
   CartesianGrid, 
   Tooltip, 
   Legend, 
-  ResponsiveContainer
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell
 } from 'recharts';
 import api from './lib/api';
 
@@ -200,6 +203,12 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
   
   // Modal Pago Gasto Fijo
   const [selectedFixedLine, setSelectedFixedLine] = useState<any | null>(null);
+
+  // Filtros de transacciones del mes
+  const [mFilterDateStart, setMFilterDateStart] = useState<string>('');
+  const [mFilterDateEnd, setMFilterDateEnd] = useState<string>('');
+  const [mFilterTipo, setMFilterTipo] = useState<string>('Todos');
+  const [mFilterCategoria, setMFilterCategoria] = useState<string>('Todas');
 
   // Queries
   const { data: dashboardData, isLoading: loadingDash } = useQuery({
@@ -529,84 +538,226 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
               </button>
             </div>
 
-            {/* LISTADO DE CATEGORÍAS */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
-              <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">Planificación vs Gasto por Categoría</h2>
-                <span className="text-xs text-slate-500">Formato en Pesos Colombianos (COP)</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
-                      <th className="py-3 px-6">Categoría</th>
-                      <th className="py-3 px-6">Tipo</th>
-                      <th className="py-3 px-6">Límite Presupuesto</th>
-                      <th className="py-3 px-6">Gastado Real</th>
-                      <th className="py-3 px-6">Diferencia</th>
-                      <th className="py-3 px-6 text-right">Acción Gasto Fijo</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                    {loadingDash ? (
-                      <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-500">Cargando datos...</td>
+            {/* DISTRIBUCIÓN Y LISTADO DE CATEGORÍAS */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* LISTADO DE CATEGORÍAS */}
+              <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
+                  <h2 className="text-base font-bold text-slate-900 dark:text-white">Planificación vs Gasto por Categoría</h2>
+                  <span className="text-xs text-slate-500">Formato en Pesos Colombianos (COP)</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                        <th className="py-3 px-6">Categoría</th>
+                        <th className="py-3 px-6">Tipo</th>
+                        <th className="py-3 px-6">Límite Presupuesto</th>
+                        <th className="py-3 px-6">Gastado Real</th>
+                        <th className="py-3 px-6">Diferencia</th>
+                        <th className="py-3 px-6 text-right">Acción Gasto Fijo</th>
                       </tr>
-                    ) : dashboardData?.categorias.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-500">No hay límites de presupuesto configurados para este mes.</td>
-                      </tr>
-                    ) : (
-                      dashboardData?.categorias.map((info: any) => (
-                        <tr key={info.categoria_id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20 transition-colors">
-                          <td className="py-4 px-6 font-semibold">{info.categoria_nombre}</td>
-                          <td className="py-4 px-6">
-                            <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${info.categoria_tipo === 'Fijo' ? 'bg-orange-100 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400' : 'bg-teal-100 dark:bg-teal-950/40 text-teal-600 dark:text-teal-400'}`}>
-                              {info.categoria_tipo}
-                            </span>
-                          </td>
-                          <td className="py-4 px-6 font-medium">{formatCOP(info.monto_presupuestado)}</td>
-                          <td className="py-4 px-6 font-medium">{formatCOP(info.monto_real)}</td>
-                          <td className="py-4 px-6">
-                            <span className={`font-bold ${info.estado === 'Rojo' ? 'text-red-500' : 'text-green-500'}`}>
-                              {formatCOP(info.desviacion)}
-                            </span>
-                          </td>
-                          <td className="py-4 px-6 text-right">
-                            {info.categoria_tipo === 'Fijo' && (
-                              <button 
-                                onClick={() => setSelectedFixedLine(info)}
-                                disabled={info.pagado_fijo || payFixedMutation.isPending}
-                                className={`inline-flex items-center space-x-1.5 py-1 px-3 rounded-lg text-xs font-bold transition border ${info.pagado_fijo ? 'bg-green-500/10 border-green-500/20 text-green-500' : 'bg-purple-600 border-purple-600 text-white hover:bg-purple-750'}`}
-                              >
-                                {info.pagado_fijo ? (
-                                  <>
-                                    <Check size={12} />
-                                    <span>Pagado</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Building size={12} />
-                                    <span>Marcar Pago</span>
-                                  </>
-                                )}
-                              </button>
-                            )}
-                          </td>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                      {loadingDash ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-slate-500">Cargando datos...</td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : dashboardData?.categorias.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-slate-500">No hay límites de presupuesto configurados para este mes.</td>
+                        </tr>
+                      ) : (
+                        dashboardData?.categorias.map((info: any) => (
+                          <tr key={info.categoria_id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20 transition-colors">
+                            <td className="py-4 px-6 font-semibold">{info.categoria_nombre}</td>
+                            <td className="py-4 px-6">
+                              <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${info.categoria_tipo === 'Fijo' ? 'bg-orange-100 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400' : 'bg-teal-100 dark:bg-teal-950/40 text-teal-600 dark:text-teal-400'}`}>
+                                {info.categoria_tipo}
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 font-medium">{formatCOP(info.monto_presupuestado)}</td>
+                            <td className="py-4 px-6 font-medium">{formatCOP(info.monto_real)}</td>
+                            <td className="py-4 px-6">
+                              <span className={`font-bold ${info.estado === 'Rojo' ? 'text-red-500' : 'text-green-500'}`}>
+                                {formatCOP(info.desviacion)}
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-right">
+                              {info.categoria_tipo === 'Fijo' && (
+                                <button 
+                                  onClick={() => setSelectedFixedLine(info)}
+                                  disabled={info.pagado_fijo || payFixedMutation.isPending}
+                                  className={`inline-flex items-center space-x-1.5 py-1 px-3 rounded-lg text-xs font-bold transition border ${info.pagado_fijo ? 'bg-green-500/10 border-green-500/20 text-green-500' : 'bg-purple-600 border-purple-600 text-white hover:bg-purple-750'}`}
+                                >
+                                  {info.pagado_fijo ? (
+                                    <>
+                                      <Check size={12} />
+                                      <span>Pagado</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Building size={12} />
+                                      <span>Marcar Pago</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* PIE CHART DEL MES */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 dark:text-white mb-1">Distribución de Gastos</h2>
+                  <p className="text-xs text-slate-500">Porcentaje y total gastado por categoría este mes</p>
+                </div>
+                
+                {(() => {
+                  const monthlyPieData = dashboardData?.categorias
+                    ?.filter((c: any) => parseFloat(c.monto_real) > 0)
+                    ?.map((c: any) => ({
+                      name: c.categoria_nombre,
+                      value: parseFloat(c.monto_real)
+                    })) || [];
+
+                  const PIE_COLORS = ['#a855f7', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16', '#eab308'];
+
+                  if (monthlyPieData.length === 0) {
+                    return (
+                      <div className="h-64 flex flex-col justify-center items-center text-slate-500 text-sm">
+                        <Wallet size={36} className="text-slate-400 mb-2 opacity-50" />
+                        <span>No se registran egresos este mes.</span>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="flex flex-col items-center">
+                      <div className="w-full h-56 flex justify-center items-center relative">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={monthlyPieData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={60}
+                              outerRadius={80}
+                              paddingAngle={4}
+                              dataKey="value"
+                            >
+                              {monthlyPieData.map((_: any, index: number) => (
+                                <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value) => formatCOP(value as number)} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="absolute text-center">
+                          <span className="text-[10px] uppercase font-bold text-slate-400">Total Egreso</span>
+                          <div className="text-sm font-bold text-slate-900 dark:text-white">
+                            {formatCOP(monthlyPieData.reduce((acc: number, cur: any) => acc + cur.value, 0))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="w-full mt-4 max-h-36 overflow-y-auto space-y-1.5 scrollbar-thin">
+                        {monthlyPieData.map((entry: any, index: number) => (
+                          <div key={index} className="flex items-center justify-between text-xs">
+                            <div className="flex items-center space-x-2">
+                              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}></span>
+                              <span className="text-slate-700 dark:text-slate-300 truncate max-w-[120px] font-medium">{entry.name}</span>
+                            </div>
+                            <span className="text-slate-900 dark:text-white font-bold">{formatCOP(entry.value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
             {/* HISTORIAL DETALLADO DE TRANSACCIONES */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
-              <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800">
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">Historial de Transacciones del Mes</h2>
-                <p className="text-xs text-slate-500">Muestra los ingresos y egresos ordenados cronológicamente</p>
+              <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 dark:text-white">Historial de Transacciones del Mes</h2>
+                  <p className="text-xs text-slate-500">Muestra los ingresos y egresos ordenados cronológicamente</p>
+                </div>
+                
+                {/* Botón de limpiar filtros si hay alguno activo */}
+                {(mFilterTipo !== 'Todos' || mFilterCategoria !== 'Todas' || mFilterDateStart || mFilterDateEnd) && (
+                  <button 
+                    onClick={() => {
+                      setMFilterTipo('Todos');
+                      setMFilterCategoria('Todas');
+                      setMFilterDateStart('');
+                      setMFilterDateEnd('');
+                    }}
+                    className="text-xs text-purple-600 dark:text-purple-400 font-semibold hover:underline flex items-center space-x-1"
+                  >
+                    <span>Limpiar filtros</span>
+                  </button>
+                )}
               </div>
+
+              {/* Filtros Bar */}
+              <div className="p-4 bg-slate-50/50 dark:bg-slate-950/20 border-b border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Tipo</label>
+                  <select 
+                    value={mFilterTipo}
+                    onChange={(e) => setMFilterTipo(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white"
+                  >
+                    <option value="Todos">Todos</option>
+                    <option value="Ingreso">Ingresos</option>
+                    <option value="Egreso">Egresos</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Categoría</label>
+                  <select 
+                    value={mFilterCategoria}
+                    onChange={(e) => setMFilterCategoria(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white"
+                  >
+                    <option value="Todas">Todas</option>
+                    {Array.from(new Set(transacciones?.map((t: any) => t.categoria) || [])).map((catName: any) => (
+                      <option key={catName} value={catName}>{catName}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Desde (Fecha)</label>
+                  <input 
+                    type="date"
+                    value={mFilterDateStart}
+                    onChange={(e) => setMFilterDateStart(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Hasta (Fecha)</label>
+                  <input 
+                    type="date"
+                    value={mFilterDateEnd}
+                    onChange={(e) => setMFilterDateEnd(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm border-collapse">
                   <thead>
@@ -624,12 +775,24 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
                       <tr>
                         <td colSpan={6} className="py-8 text-center text-slate-500">Cargando transacciones...</td>
                       </tr>
-                    ) : !transacciones || transacciones.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-500">No se registran movimientos para este mes.</td>
-                      </tr>
-                    ) : (
-                      transacciones.map((t: any, idx: number) => (
+                    ) : (() => {
+                      const filtered = transacciones?.filter((t: any) => {
+                        if (mFilterTipo !== 'Todos' && t.tipo !== mFilterTipo) return false;
+                        if (mFilterCategoria !== 'Todas' && t.categoria !== mFilterCategoria) return false;
+                        if (mFilterDateStart && t.fecha < mFilterDateStart) return false;
+                        if (mFilterDateEnd && t.fecha > mFilterDateEnd) return false;
+                        return true;
+                      }) || [];
+
+                      if (filtered.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={6} className="py-8 text-center text-slate-500">No se encontraron movimientos con los filtros aplicados.</td>
+                          </tr>
+                        );
+                      }
+
+                      return filtered.map((t: any, idx: number) => (
                         <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20 transition-colors">
                           <td className="py-3.5 px-6 font-medium text-slate-500 dark:text-slate-400">{t.fecha}</td>
                           <td className="py-3.5 px-6">
@@ -654,8 +817,8 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
                             {t.tipo === 'Ingreso' ? '+' : '-'}{formatCOP(t.monto)}
                           </td>
                         </tr>
-                      ))
-                    )}
+                      ));
+                    })()}
                   </tbody>
                 </table>
               </div>
@@ -713,7 +876,8 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
 
 // --- VISTA GRÁFICO HISTORIAL ANUAL ---
 function YearlyHistoryView({ selectedYear }: { selectedYear: number }) {
-  const { data: chartData, isLoading } = useQuery({
+  // Query para resumen histórico agrupado por mes/categoría (para el gráfico de barras y pie)
+  const { data: chartData, isLoading: loadingChart } = useQuery({
     queryKey: ['historico', selectedYear],
     queryFn: async () => {
       const response = await api.get(`/api/historico/${selectedYear}`);
@@ -721,7 +885,22 @@ function YearlyHistoryView({ selectedYear }: { selectedYear: number }) {
     }
   });
 
-  if (isLoading) {
+  // Query para todas las transacciones del año
+  const { data: transaccionesAnuales, isLoading: loadingTransAnuales } = useQuery({
+    queryKey: ['transaccionesAnuales', selectedYear],
+    queryFn: async () => {
+      const response = await api.get(`/api/transacciones/anual/${selectedYear}`);
+      return response.data;
+    }
+  });
+
+  // Filtros de transacciones anuales
+  const [yFilterDateStart, setYFilterDateStart] = useState<string>('');
+  const [yFilterDateEnd, setYFilterDateEnd] = useState<string>('');
+  const [yFilterTipo, setYFilterTipo] = useState<string>('Todos');
+  const [yFilterCategoria, setYFilterCategoria] = useState<string>('Todas');
+
+  if (loadingChart) {
     return <div className="py-12 text-center text-slate-500">Cargando gráfico evolutivo...</div>;
   }
 
@@ -739,8 +918,22 @@ function YearlyHistoryView({ selectedYear }: { selectedYear: number }) {
     };
   });
 
+  // Calcular distribución anual por categoría (para el Pie Chart)
+  const categoryTotals: Record<string, number> = {};
+  chartData?.forEach((mesData: any) => {
+    mesData.detalles.forEach((det: any) => {
+      const real = parseFloat(det.real) || 0;
+      if (real > 0) {
+        categoryTotals[det.categoria_nombre] = (categoryTotals[det.categoria_nombre] || 0) + real;
+      }
+    });
+  });
+  const yearlyPieData = Object.entries(categoryTotals).map(([name, value]) => ({ name, value }));
+  const PIE_COLORS = ['#a855f7', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16', '#eab308'];
+
   return (
     <div className="grid grid-cols-1 gap-6">
+      {/* Gráfico de barras */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
         <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">Ejecución del Presupuesto Anual ({selectedYear})</h2>
         <div className="h-96">
@@ -758,34 +951,234 @@ function YearlyHistoryView({ selectedYear }: { selectedYear: number }) {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800">
-          <h2 className="text-base font-bold text-slate-900 dark:text-white">Resumen Mensual Detallado</h2>
+      {/* Grid: Resumen mensual y Pie Chart Anual */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Resumen Mensual */}
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+          <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">Resumen Mensual Detallado</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm border-collapse">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 text-xs uppercase border-b border-slate-200 dark:border-slate-800">
+                  <th className="py-3 px-6">Mes</th>
+                  <th className="py-3 px-6">Total Presupuestado</th>
+                  <th className="py-3 px-6">Total Real</th>
+                  <th className="py-3 px-6">Desviación</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                {totalCompareData?.map((item: any, idx: number) => {
+                  const diff = item.Presupuestado - item.Real;
+                  return (
+                    <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20">
+                      <td className="py-3 px-6 font-bold">{item.mes}</td>
+                      <td className="py-3 px-6">{formatCOP(item.Presupuestado)}</td>
+                      <td className="py-3 px-6">{formatCOP(item.Real)}</td>
+                      <td className={`py-3 px-6 font-semibold ${diff < 0 ? 'text-red-500' : 'text-green-500'}`}>
+                        {formatCOP(diff)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
+
+        {/* Pie Chart Anual */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex flex-col justify-between">
+          <div>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white mb-1">Distribución Anual de Gastos</h2>
+            <p className="text-xs text-slate-500">Porcentaje y total gastado por categoría durante el año</p>
+          </div>
+
+          {yearlyPieData.length === 0 ? (
+            <div className="h-64 flex flex-col justify-center items-center text-slate-500 text-sm">
+              <Wallet size={36} className="text-slate-400 mb-2 opacity-50" />
+              <span>No se registran egresos este año.</span>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center">
+              <div className="w-full h-56 flex justify-center items-center relative">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={yearlyPieData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={80}
+                      paddingAngle={4}
+                      dataKey="value"
+                    >
+                      {yearlyPieData.map((_: any, index: number) => (
+                        <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value) => formatCOP(value as number)} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute text-center">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Total Egreso Anual</span>
+                  <div className="text-sm font-bold text-slate-900 dark:text-white">
+                    {formatCOP(yearlyPieData.reduce((acc: number, cur: any) => acc + cur.value, 0))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="w-full mt-4 max-h-36 overflow-y-auto space-y-1.5 scrollbar-thin">
+                {yearlyPieData.map((entry: any, index: number) => (
+                  <div key={index} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center space-x-2">
+                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}></span>
+                      <span className="text-slate-700 dark:text-slate-300 truncate max-w-[120px] font-medium">{entry.name}</span>
+                    </div>
+                    <span className="text-slate-900 dark:text-white font-bold">{formatCOP(entry.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* HISTORIAL DETALLADO DE TRANSACCIONES ANUALES */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">Historial de Transacciones Anuales</h2>
+            <p className="text-xs text-slate-500">Muestra todos los ingresos y egresos del año ordenados cronológicamente</p>
+          </div>
+          
+          {/* Botón de limpiar filtros si hay alguno activo */}
+          {(yFilterTipo !== 'Todos' || yFilterCategoria !== 'Todas' || yFilterDateStart || yFilterDateEnd) && (
+            <button 
+              onClick={() => {
+                setYFilterTipo('Todos');
+                setYFilterCategoria('Todas');
+                setYFilterDateStart('');
+                setYFilterDateEnd('');
+              }}
+              className="text-xs text-purple-600 dark:text-purple-400 font-semibold hover:underline flex items-center space-x-1"
+            >
+              <span>Limpiar filtros</span>
+            </button>
+          )}
+        </div>
+
+        {/* Filtros Bar */}
+        <div className="p-4 bg-slate-50/50 dark:bg-slate-950/20 border-b border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Tipo</label>
+            <select 
+              value={yFilterTipo}
+              onChange={(e) => setYFilterTipo(e.target.value)}
+              className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white"
+            >
+              <option value="Todos">Todos</option>
+              <option value="Ingreso">Ingresos</option>
+              <option value="Egreso">Egresos</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Categoría</label>
+            <select 
+              value={yFilterCategoria}
+              onChange={(e) => setYFilterCategoria(e.target.value)}
+              className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white"
+            >
+              <option value="Todas">Todas</option>
+              {Array.from(new Set(transaccionesAnuales?.map((t: any) => t.categoria) || [])).map((catName: any) => (
+                <option key={catName} value={catName}>{catName}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Desde (Fecha)</label>
+            <input 
+              type="date"
+              value={yFilterDateStart}
+              onChange={(e) => setYFilterDateStart(e.target.value)}
+              className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Hasta (Fecha)</label>
+            <input 
+              type="date"
+              value={yFilterDateEnd}
+              onChange={(e) => setYFilterDateEnd(e.target.value)}
+              className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white"
+            />
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm border-collapse">
             <thead>
-              <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 text-xs uppercase border-b border-slate-200 dark:border-slate-800">
-                <th className="py-3 px-6">Mes</th>
-                <th className="py-3 px-6">Total Presupuestado</th>
-                <th className="py-3 px-6">Total Real</th>
-                <th className="py-3 px-6">Desviación</th>
+              <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                <th className="py-3 px-6">Fecha</th>
+                <th className="py-3 px-6">Tipo</th>
+                <th className="py-3 px-6">Categoría</th>
+                <th className="py-3 px-6">Descripción / Detalle</th>
+                <th className="py-3 px-6">Medio de Pago</th>
+                <th className="py-3 px-6">Monto</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-              {totalCompareData?.map((item: any, idx: number) => {
-                const diff = item.Presupuestado - item.Real;
-                return (
-                  <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20">
-                    <td className="py-3 px-6 font-bold">{item.mes}</td>
-                    <td className="py-3 px-6">{formatCOP(item.Presupuestado)}</td>
-                    <td className="py-3 px-6">{formatCOP(item.Real)}</td>
-                    <td className={`py-3 px-6 font-semibold ${diff < 0 ? 'text-red-500' : 'text-green-500'}`}>
-                      {formatCOP(diff)}
+              {loadingTransAnuales ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-slate-500">Cargando transacciones...</td>
+                </tr>
+              ) : (() => {
+                const filtered = transaccionesAnuales?.filter((t: any) => {
+                  if (yFilterTipo !== 'Todos' && t.tipo !== yFilterTipo) return false;
+                  if (yFilterCategoria !== 'Todas' && t.categoria !== yFilterCategoria) return false;
+                  if (yFilterDateStart && t.fecha < yFilterDateStart) return false;
+                  if (yFilterDateEnd && t.fecha > yFilterDateEnd) return false;
+                  return true;
+                }) || [];
+
+                if (filtered.length === 0) {
+                  return (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-500">No se encontraron movimientos con los filtros aplicados.</td>
+                    </tr>
+                  );
+                }
+
+                return filtered.map((t: any, idx: number) => (
+                  <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20 transition-colors">
+                    <td className="py-3.5 px-6 font-medium text-slate-500 dark:text-slate-400">{t.fecha}</td>
+                    <td className="py-3.5 px-6">
+                      <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold ${t.tipo === 'Ingreso' ? 'bg-green-100 dark:bg-green-950/40 text-green-600 dark:text-green-400' : 'bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400'}`}>
+                        {t.tipo}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-6 font-semibold">{t.categoria}</td>
+                    <td className="py-3.5 px-6">
+                      <div className="font-medium text-slate-900 dark:text-slate-100">{t.descripcion}</div>
+                      {t.establecimiento && (
+                        <div className="text-xs text-slate-400">Establecimiento: {t.establecimiento}</div>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-6 text-slate-600 dark:text-slate-400">
+                      <div className="flex items-center space-x-1 text-xs">
+                        <CreditCard size={14} className="text-slate-400" />
+                        <span>{t.medio_pago}</span>
+                      </div>
+                    </td>
+                    <td className={`py-3.5 px-6 font-bold ${t.tipo === 'Ingreso' ? 'text-green-500' : 'text-slate-950 dark:text-white'}`}>
+                      {t.tipo === 'Ingreso' ? '+' : '-'}{formatCOP(t.monto)}
                     </td>
                   </tr>
-                );
-              })}
+                ));
+              })()}
             </tbody>
           </table>
         </div>

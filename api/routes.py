@@ -417,6 +417,55 @@ def get_transacciones(mes: int, anio: int, session: Session = Depends(get_sessio
     return resultado
 
 
+@router.get("/transacciones/anual/{anio}")
+def get_transacciones_anuales(anio: int, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
+    # Consultar todos los gastos reales del año
+    gastos = session.exec(
+        select(GastoReal)
+        .where(GastoReal.fecha >= date(anio, 1, 1))
+        .where(GastoReal.fecha <= date(anio, 12, 31))
+    ).all()
+    
+    # Consultar todos los presupuestos mensuales de ese año para obtener sus ingresos reales
+    presupuestos = session.exec(
+        select(PresupuestoMensual)
+        .where(PresupuestoMensual.anio == anio)
+    ).all()
+    
+    resultado = []
+    
+    # Agregar Egresos
+    for g in gastos:
+        resultado.append({
+            "id": g.id,
+            "tipo": "Egreso",
+            "monto": g.monto_real,
+            "fecha": g.fecha,
+            "descripcion": g.descripcion,
+            "categoria": g.categoria.nombre if g.categoria else "Otros",
+            "medio_pago": g.medio_pago or "Efectivo",
+            "establecimiento": g.establecimiento or ""
+        })
+        
+    # Agregar Ingresos de todos los presupuestos del año
+    for p in presupuestos:
+        for i in p.ingresos_reales:
+            resultado.append({
+                "id": i.id,
+                "tipo": "Ingreso",
+                "monto": i.monto_real,
+                "fecha": i.fecha,
+                "descripcion": i.descripcion,
+                "categoria": "Ingreso Real",
+                "medio_pago": i.medio_pago or "Efectivo",
+                "establecimiento": ""
+            })
+            
+    # Ordenar por fecha descendente
+    resultado.sort(key=lambda x: (x["fecha"], x["id"]), reverse=True)
+    return resultado
+
+
 # --- Dashboard ---
 @router.get("/dashboard/{mes}/{anio}")
 def get_dashboard(mes: int, anio: int, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):

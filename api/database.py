@@ -12,9 +12,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     DATABASE_URL = "sqlite:///./gastos.db"
 
-# Si es postgresql, asegurarse de usar la especificación moderna en sqlmodel/sqlalchemy
+# Si es postgresql, asegurarse de usar el driver puro pg8000 en sqlmodel/sqlalchemy para evitar dependencias C en Windows
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+pg8000://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+pg8000://", 1)
 
 # Usar pool_pre_ping para evitar caídas de conexiones inactivas en Supabase
 engine = create_engine(

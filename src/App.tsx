@@ -106,8 +106,8 @@ function LoginScreen({ onLoginSuccess, darkMode, setDarkMode }: {
   darkMode: boolean;
   setDarkMode: (val: boolean) => void;
 }) {
-  const [username, setUsername] = useState('agaray');
-  const [password, setPassword] = useState('r0b1ns0n!');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 

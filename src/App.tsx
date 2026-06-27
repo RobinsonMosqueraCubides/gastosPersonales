@@ -499,7 +499,7 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
                       if (value !== null) {
                         const parsed = parseFloat(value);
                         if (!isNaN(parsed) && parsed >= 0) {
-                          estimatedIncomeMutation.mutate(parsed);
+                          estimatedIncomeMutation.mutate({ ingreso_estimado: parsed });
                         }
                       }
                     }}

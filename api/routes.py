@@ -506,6 +506,7 @@ def get_dashboard(mes: int, anio: int, session: Session = Depends(get_session), 
     
     for linea in presupuesto.lineas:
         consolidado[linea.categoria_id] = {
+            "id": linea.id,
             "categoria_id": linea.categoria_id,
             "categoria_nombre": linea.categoria.nombre,
             "categoria_tipo": linea.categoria.tipo_gasto,
@@ -521,6 +522,7 @@ def get_dashboard(mes: int, anio: int, session: Session = Depends(get_session), 
         if cat_id not in consolidado:
             categoria = session.get(Categoria, cat_id)
             consolidado[cat_id] = {
+                "id": None,
                 "categoria_id": cat_id,
                 "categoria_nombre": categoria.nombre if categoria else "Otros",
                 "categoria_tipo": categoria.tipo_gasto if categoria else "Variable",
@@ -627,3 +629,107 @@ def get_historico(anio: int, session: Session = Depends(get_session), current_us
         datos_historicos.append(mes_data)
         
     return datos_historicos
+
+
+# --- Rutas de Actualización y Eliminación de Movimientos ---
+
+@router.put("/gastos/{gasto_id}", response_model=GastoRealResponse)
+def update_gasto(gasto_id: int, data: GastoRealCreate, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
+    gasto = session.get(GastoReal, gasto_id)
+    if not gasto:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gasto no encontrado.")
+        
+    mes_gasto = data.fecha.month
+    anio_gasto = data.fecha.year
+    
+    presupuesto = session.exec(
+        select(PresupuestoMensual)
+        .where(PresupuestoMensual.mes == mes_gasto)
+        .where(PresupuestoMensual.anio == anio_gasto)
+    ).first()
+    
+    if not presupuesto:
+        presupuesto = PresupuestoMensual(mes=mes_gasto, anio=anio_gasto, ingreso_estimado=Decimal("0.00"))
+        session.add(presupuesto)
+        session.commit()
+        session.refresh(presupuesto)
+        
+    linea = session.exec(
+        select(LineaPresupuesto)
+        .where(LineaPresupuesto.presupuesto_mensual_id == presupuesto.id)
+        .where(LineaPresupuesto.categoria_id == data.categoria_id)
+    ).first()
+    
+    if not linea:
+        linea = LineaPresupuesto(
+            presupuesto_mensual_id=presupuesto.id,
+            categoria_id=data.categoria_id,
+            monto_presupuestado=Decimal("0.00")
+        )
+        session.add(linea)
+        session.commit()
+        
+    gasto.categoria_id = data.categoria_id
+    gasto.monto_real = data.monto_real
+    gasto.fecha = data.fecha
+    gasto.descripcion = data.descripcion
+    gasto.establecimiento = data.establecimiento
+    gasto.medio_pago = data.medio_pago
+    
+    session.add(gasto)
+    session.commit()
+    session.refresh(gasto)
+    return gasto
+
+
+@router.delete("/gastos/{gasto_id}")
+def delete_gasto(gasto_id: int, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
+    gasto = session.get(GastoReal, gasto_id)
+    if not gasto:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gasto no encontrado.")
+    session.delete(gasto)
+    session.commit()
+    return {"message": "Gasto eliminado correctamente."}
+
+
+@router.put("/ingresos/{ingreso_id}", response_model=IngresoRealResponse)
+def update_ingreso(ingreso_id: int, data: IngresoRealCreate, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
+    ingreso = session.get(IngresoReal, ingreso_id)
+    if not ingreso:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingreso no encontrado.")
+        
+    mes_ingreso = data.fecha.month
+    anio_ingreso = data.fecha.year
+    
+    presupuesto = session.exec(
+        select(PresupuestoMensual)
+        .where(PresupuestoMensual.mes == mes_ingreso)
+        .where(PresupuestoMensual.anio == anio_ingreso)
+    ).first()
+    
+    if not presupuesto:
+        presupuesto = PresupuestoMensual(mes=mes_ingreso, anio=anio_ingreso, ingreso_estimado=Decimal("0.00"))
+        session.add(presupuesto)
+        session.commit()
+        session.refresh(presupuesto)
+        
+    ingreso.presupuesto_mensual_id = presupuesto.id
+    ingreso.monto_real = data.monto_real
+    ingreso.fecha = data.fecha
+    ingreso.descripcion = data.descripcion
+    ingreso.medio_pago = data.medio_pago
+    
+    session.add(ingreso)
+    session.commit()
+    session.refresh(ingreso)
+    return ingreso
+
+
+@router.delete("/ingresos/{ingreso_id}")
+def delete_ingreso(ingreso_id: int, session: Session = Depends(get_session), current_user: Usuario = Depends(get_current_user)):
+    ingreso = session.get(IngresoReal, ingreso_id)
+    if not ingreso:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingreso no encontrado.")
+    session.delete(ingreso)
+    session.commit()
+    return {"message": "Ingreso eliminado correctamente."}

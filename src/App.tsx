@@ -21,7 +21,9 @@ import {
   Building,
   ArrowUpRight,
   ArrowDownRight,
-  CreditCard
+  CreditCard,
+  Edit2,
+  Trash2
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -204,6 +206,9 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
   // Modal Pago Gasto Fijo
   const [selectedFixedLine, setSelectedFixedLine] = useState<any | null>(null);
 
+  // Transacción en edición
+  const [editingTransaction, setEditingTransaction] = useState<any | null>(null);
+
   // Filtros de transacciones del mes
   const [mFilterDateStart, setMFilterDateStart] = useState<string>('');
   const [mFilterDateEnd, setMFilterDateEnd] = useState<string>('');
@@ -255,6 +260,28 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
     }
   });
 
+  // Mutación para Editar Gasto
+  const updateExpenseMutation = useMutation({
+    mutationFn: async (payload: {
+      id: number;
+      categoria_id: number;
+      monto_real: number;
+      fecha: string;
+      descripcion: string;
+      establecimiento?: string;
+      medio_pago: string;
+    }) => {
+      const { id, ...data } = payload;
+      return api.put(`/api/gastos/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['transacciones'] });
+      queryClient.invalidateQueries({ queryKey: ['historico'] });
+      setEditingTransaction(null);
+    }
+  });
+
   // Mutación para Registrar Ingreso Real
   const incomeMutation = useMutation({
     mutationFn: async (payload: {
@@ -270,6 +297,26 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
       queryClient.invalidateQueries({ queryKey: ['transacciones'] });
       queryClient.invalidateQueries({ queryKey: ['historico'] });
       setShowIncomeModal(false);
+    }
+  });
+
+  // Mutación para Editar Ingreso
+  const updateIncomeMutation = useMutation({
+    mutationFn: async (payload: {
+      id: number;
+      monto_real: number;
+      fecha: string;
+      descripcion: string;
+      medio_pago: string;
+    }) => {
+      const { id, ...data } = payload;
+      return api.put(`/api/ingresos/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['transacciones'] });
+      queryClient.invalidateQueries({ queryKey: ['historico'] });
+      setEditingTransaction(null);
     }
   });
 
@@ -290,12 +337,8 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
 
   // Mutación para Configurar Ingreso Estimado
   const estimatedIncomeMutation = useMutation({
-    mutationFn: async (ingreso: number) => {
-      return api.post('/api/presupuestos', {
-        mes: selectedMonth,
-        anio: selectedYear,
-        ingreso_estimado: ingreso
-      });
+    mutationFn: async (payload: { ingreso_estimado: number }) => {
+      return api.post(`/api/presupuestos/${selectedMonth}/${selectedYear}/ingreso_estimado`, payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -310,6 +353,7 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['transacciones'] });
+      queryClient.invalidateQueries({ queryKey: ['historico'] });
       alert("¡Presupuesto clonado con éxito!");
     },
     onError: (err: any) => {
@@ -327,6 +371,22 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
       queryClient.invalidateQueries({ queryKey: ['transacciones'] });
       queryClient.invalidateQueries({ queryKey: ['historico'] });
       setSelectedFixedLine(null);
+    }
+  });
+
+  // Mutación para Eliminar Transacción
+  const deleteTransactionMutation = useMutation({
+    mutationFn: async (payload: { id: number; tipo: 'Ingreso' | 'Egreso' }) => {
+      if (payload.tipo === 'Egreso') {
+        return api.delete(`/api/gastos/${payload.id}`);
+      } else {
+        return api.delete(`/api/ingresos/${payload.id}`);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['transacciones'] });
+      queryClient.invalidateQueries({ queryKey: ['historico'] });
     }
   });
 
@@ -768,12 +828,13 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
                       <th className="py-3 px-6">Descripción / Detalle</th>
                       <th className="py-3 px-6">Medio de Pago</th>
                       <th className="py-3 px-6">Monto</th>
+                      <th className="py-3 px-6 text-right">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                     {loadingTrans ? (
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-500">Cargando transacciones...</td>
+                        <td colSpan={7} className="py-8 text-center text-slate-500">Cargando transacciones...</td>
                       </tr>
                     ) : (() => {
                       const filtered = transacciones?.filter((t: any) => {
@@ -787,7 +848,7 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
                       if (filtered.length === 0) {
                         return (
                           <tr>
-                            <td colSpan={6} className="py-8 text-center text-slate-500">No se encontraron movimientos con los filtros aplicados.</td>
+                            <td colSpan={7} className="py-8 text-center text-slate-500">No se encontraron movimientos con los filtros aplicados.</td>
                           </tr>
                         );
                       }
@@ -815,6 +876,29 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
                           </td>
                           <td className={`py-3.5 px-6 font-bold ${t.tipo === 'Ingreso' ? 'text-green-500' : 'text-slate-950 dark:text-white'}`}>
                             {t.tipo === 'Ingreso' ? '+' : '-'}{formatCOP(t.monto)}
+                          </td>
+                          <td className="py-3.5 px-6 text-right">
+                            <div className="flex items-center justify-end space-x-2">
+                              <button 
+                                onClick={() => setEditingTransaction(t)}
+                                className="p-1.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition"
+                                title="Editar"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  if (confirm('¿Estás seguro de que deseas eliminar esta transacción?')) {
+                                    deleteTransactionMutation.mutate({ id: t.id, tipo: t.tipo });
+                                  }
+                                }}
+                                disabled={deleteTransactionMutation.isPending}
+                                className="p-1.5 rounded bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/60 transition"
+                                title="Eliminar"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ));
@@ -848,6 +932,27 @@ function DashboardLayout({ onLogout, darkMode, setDarkMode }: {
           onClose={() => setShowIncomeModal(false)}
           onSubmit={(data) => incomeMutation.mutate(data)}
           isPending={incomeMutation.isPending}
+        />
+      )}
+
+      {/* MODAL EDITAR GASTO */}
+      {editingTransaction && editingTransaction.tipo === 'Egreso' && (
+        <ExpenseModal 
+          categorias={categorias || []}
+          onClose={() => setEditingTransaction(null)}
+          onSubmit={(data) => updateExpenseMutation.mutate({ id: editingTransaction.id, ...data })}
+          isPending={updateExpenseMutation.isPending}
+          initialData={editingTransaction}
+        />
+      )}
+
+      {/* MODAL EDITAR INGRESO */}
+      {editingTransaction && editingTransaction.tipo === 'Ingreso' && (
+        <IncomeModal 
+          onClose={() => setEditingTransaction(null)}
+          onSubmit={(data) => updateIncomeMutation.mutate({ id: editingTransaction.id, ...data })}
+          isPending={updateIncomeMutation.isPending}
+          initialData={editingTransaction}
         />
       )}
 
@@ -1186,20 +1291,24 @@ function YearlyHistoryView({ selectedYear }: { selectedYear: number }) {
     </div>
   );
 }
-
 // --- MODAL DE GASTOS ---
-function ExpenseModal({ categorias, onClose, onSubmit, isPending }: {
+function ExpenseModal({ categorias, onClose, onSubmit, isPending, initialData }: {
   categorias: any[];
   onClose: () => void;
   onSubmit: (data: any) => void;
   isPending: boolean;
+  initialData?: any;
 }) {
-  const [catId, setCatId] = useState(categorias[0]?.id || '');
-  const [monto, setMonto] = useState('');
-  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
-  const [descripcion, setDescripcion] = useState('');
-  const [establecimiento, setEstablecimiento] = useState('');
-  const [medioPago, setMedioPago] = useState(MEDIOS_PAGO[0]);
+  const initialCatId = initialData 
+    ? (categorias.find(c => c.nombre === initialData.categoria)?.id || categorias[0]?.id || '')
+    : (categorias[0]?.id || '');
+
+  const [catId, setCatId] = useState(initialCatId);
+  const [monto, setMonto] = useState(initialData ? initialData.monto.toString() : '');
+  const [fecha, setFecha] = useState(initialData ? initialData.fecha : new Date().toISOString().split('T')[0]);
+  const [descripcion, setDescripcion] = useState(initialData ? initialData.descripcion : '');
+  const [establecimiento, setEstablecimiento] = useState(initialData ? initialData.establecimiento || '' : '');
+  const [medioPago, setMedioPago] = useState(initialData ? initialData.medio_pago : MEDIOS_PAGO[0]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1218,7 +1327,9 @@ function ExpenseModal({ categorias, onClose, onSubmit, isPending }: {
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex justify-center items-center p-4">
       <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white">Registrar Gasto Real</h3>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+            {initialData ? 'Editar Gasto Real' : 'Registrar Gasto Real'}
+          </h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white">✕</button>
         </div>
 
@@ -1313,7 +1424,7 @@ function ExpenseModal({ categorias, onClose, onSubmit, isPending }: {
               disabled={isPending}
               className="py-2 px-4 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:opacity-50"
             >
-              {isPending ? 'Guardando...' : 'Registrar Gasto'}
+              {isPending ? 'Guardando...' : (initialData ? 'Guardar Cambios' : 'Registrar Gasto')}
             </button>
           </div>
         </form>
@@ -1322,16 +1433,18 @@ function ExpenseModal({ categorias, onClose, onSubmit, isPending }: {
   );
 }
 
+
 // --- MODAL DE INGRESO REAL ---
-function IncomeModal({ onClose, onSubmit, isPending }: {
+function IncomeModal({ onClose, onSubmit, isPending, initialData }: {
   onClose: () => void;
   onSubmit: (data: any) => void;
   isPending: boolean;
+  initialData?: any;
 }) {
-  const [monto, setMonto] = useState('');
-  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
-  const [descripcion, setDescripcion] = useState('');
-  const [medioPago, setMedioPago] = useState(MEDIOS_PAGO[0]);
+  const [monto, setMonto] = useState(initialData ? initialData.monto.toString() : '');
+  const [fecha, setFecha] = useState(initialData ? initialData.fecha : new Date().toISOString().split('T')[0]);
+  const [descripcion, setDescripcion] = useState(initialData ? initialData.descripcion : '');
+  const [medioPago, setMedioPago] = useState(initialData ? initialData.medio_pago : MEDIOS_PAGO[0]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1348,7 +1461,9 @@ function IncomeModal({ onClose, onSubmit, isPending }: {
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex justify-center items-center p-4">
       <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white">Registrar Ingreso Real</h3>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+            {initialData ? 'Editar Ingreso Real' : 'Registrar Ingreso Real'}
+          </h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white">✕</button>
         </div>
 
@@ -1418,7 +1533,7 @@ function IncomeModal({ onClose, onSubmit, isPending }: {
               disabled={isPending}
               className="py-2 px-4 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50"
             >
-              {isPending ? 'Guardando...' : 'Registrar Ingreso'}
+              {isPending ? 'Guardando...' : (initialData ? 'Guardar Cambios' : 'Registrar Ingreso')}
             </button>
           </div>
         </form>
